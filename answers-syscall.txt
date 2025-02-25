@@ -27,3 +27,9 @@ What is the name of the process that was running when the kernel paniced?
 What is its process id (pid)?
   -> The process called "initcode" that was running 
   -> when the kernel paniced is assigned 1 to pid
+
+user/secret.c copies the secret bytes to memory whose address 
+is 32 bytes after the start of a page. Change the 32 to 0 and 
+you should see that your attack doesn't work anymore; why not?
+  -> Since in a free page, the first 8-byte used to point to the 
+  -> phys.memory of the next free page would override the secret
