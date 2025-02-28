@@ -35,3 +35,13 @@ Trapframe!    Valid-Readable-Writable
 
 va 0xFFFFF000 pte 0x2000184B pa 0x80006000 perm 0x4B
 Trampoline!   Valid-Readable-Executable
+
+Which other xv6 system call(s) could be made 
+faster using this shared page? Explain how
+  -> There are many system calls that could be made faster:
+  - fork: copy-on-write fork implementing in one of the latter labs :))).
+    Briefly, the core idea is that these two processes (parent and child) 
+    share the same read-only image, and if a process needs to write to a 
+    page after a while, the kernel will now copy on demand.
+  - fstat: the copyout function can be removed when using a shared page 
+    (the idea is similar to the getpid changes)
