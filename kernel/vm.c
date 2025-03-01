@@ -507,7 +507,8 @@ vmprint(pagetable_t pagetable)
           va0 = i << 30;
           printf (" ..%p: pte %p pa %p\n", (void *) va0,
                   (void *) pte, (void *) PTE2PA (pte));
-
+          
+          if ((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
           // level 1
           middlepgtbl = (pagetable_t) PTE2PA (pte);
           for (j = 0; j < 512; ++j)
@@ -519,6 +520,7 @@ vmprint(pagetable_t pagetable)
                   printf (" .. ..%p: pte %p pa %p\n", (void *) va1,
                           (void *) pte, (void *) PTE2PA (pte));
 
+                  if ((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
                   // level 2
                   bottompgtbl = (pagetable_t) PTE2PA (pte);
                   for (k = 0; k < 512; ++k)
@@ -531,11 +533,12 @@ vmprint(pagetable_t pagetable)
                                  (void *) pte, (void *) PTE2PA (pte));
                         }
                     }
+                  }
                 }
             }
+          }
         }
     }
-
 }
 #endif
 
