@@ -132,6 +132,15 @@ found:
     return 0;
   }
 
+  // Allocate a page containing the processID
+  if ((p->usyscall = (struct usyscall *) kalloc ()) == 0)
+    {
+      freeproc (p);
+      release (&p->lock);
+      return 0;
+    }
+  p->usyscall->pid = p->pid;
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -158,8 +167,14 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  
+  if (p->usyscall)
+    kfree ((void *) p->usyscall);
+  p->usyscall = 0;
+
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -177,7 +192,6 @@ pagetable_t
 proc_pagetable(struct proc *p)
 {
   pagetable_t pagetable;
-  struct usyscall *usc;
 
   // An empty page table.
   pagetable = uvmcreate();
@@ -205,14 +219,8 @@ proc_pagetable(struct proc *p)
   
   // map the usyscall page just below the trapframe page, for
   // struct usyscall
-  if ((usc = (struct usyscall *) kalloc ()) == 0) {
-    uvmfree (pagetable, 0);
-    return 0;
-  }
-  usc->pid = p->pid;
-
   if(mappages (pagetable, USYSCALL, PGSIZE,
-              (uint64) usc, PTE_V | PTE_R | PTE_U) < 0) {
+              (uint64) (p->usyscall), PTE_V | PTE_R | PTE_U) < 0) {
     uvmunmap (pagetable, USYSCALL, 1, 0);
     uvmfree (pagetable, 0);
     return 0;
