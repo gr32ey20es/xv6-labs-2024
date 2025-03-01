@@ -37,12 +37,13 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p, *superp;
   
-  p = (char*)PGROUNDUP((uint64)pa_start);
-  superp = (char*)SUPERPGROUNDUP((uint64)pa_start);
+  p = (char *) PGROUNDUP ((uint64) pa_start);
+  superp = (char *) SUPERPGROUNDUP ((uint64) pa_start);
 
   freerangewopt (p, superp, 0);
-  p = freerangewopt (superp, pa_end, 1);
-  //freerangewopt (p, pa_end, 0);
+  superp = freerangewopt (superp, pa_end, 1);
+  p = superp;
+  freerangewopt (p, pa_end, 0);
 }
 
 // opt 0: kfree
@@ -126,7 +127,7 @@ void *
 kalloc(void)
 {
   struct run *r;
-  char *p;
+  char *p, *maxp;
 
   acquire(&kmem.lock);
   r = kmem.freelist;
@@ -138,9 +139,11 @@ kalloc(void)
       if (r)
         {
           kmem.superfreelist = r->next;
-          p = (char*)PGROUNDUP((uint64) r);
 
-          for(; p + PGSIZE <= (char*) r + SUPERPGSIZE; p += PGSIZE)
+          p = (char*)PGROUNDUP((uint64) r);
+          maxp = (char*) r + SUPERPGSIZE;
+
+          for(; p + PGSIZE <= maxp; p += PGSIZE)
             {  
               r = (struct run*)p;
               r->next = kmem.freelist;

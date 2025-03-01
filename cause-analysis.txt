@@ -1,0 +1,9 @@
+scause: 0xf-Store/AMO page fault 
+  -> refer to the RISV-V manual provided in the course
+
+for(; p + PGSIZE <= (char*) r + SUPERPGSIZE; p += PGSIZE)
+  {   
+    r = (struct run*)p;
+    ...
+
+  -> Well, stupid mistake :)
