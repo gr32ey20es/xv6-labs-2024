@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "fs.h"
+#include "vm.h"
 
 /*
  * the kernel's page table.
@@ -84,7 +85,8 @@ kvminithart()
 pte_t *
 walk (pagetable_t pagetable, uint64 va, int alloc)
 {
-  return walk_level (pagetable, va, alloc, 0);
+  int pgmode = KPAGEMODE;
+  return walk_level (pagetable, va, alloc, pgmode);
 }
 
 // Return the address of the PTE in level-th page table 
@@ -100,14 +102,18 @@ walk (pagetable_t pagetable, uint64 va, int alloc)
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
 pte_t *
-walk_level (pagetable_t pagetable, uint64 va, int alloc, int level)
+walk_level (pagetable_t pagetable, uint64 va, int alloc, int pgmode)
 {
+  int pglevel;
+
   if (va >= MAXVA)
-    panic ("walk_level: out of range");
+    panic ("walk_level: va");
   
-  for (int lv = 2; lv > level; lv--) 
+  pglevel = PG_GETLEVEL (pgmode);
+
+  for (int level = 2; level > pglevel; level--) 
     {
-      pte_t *pte = &pagetable[PX(lv, va)];
+      pte_t *pte = &pagetable[PX (level, va)];
       if (*pte & PTE_V) 
         {
           pagetable = (pagetable_t) PTE2PA (*pte);
@@ -125,7 +131,7 @@ walk_level (pagetable_t pagetable, uint64 va, int alloc, int level)
         }
     }
   
-  return &pagetable[PX(level, va)];
+  return &pagetable[PX (pglevel, va)];
 }
 
 
@@ -168,7 +174,8 @@ kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 int
 mappages (pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 {
-  return mappages_size (pagetable, va, size, pa, perm, 0);
+  int pgmode = KPAGEMODE;
+  return mappages_size (pagetable, va, size, pa, perm, pgmode);
 }
 
 
@@ -182,23 +189,15 @@ int
 mappages_size (pagetable_t pagetable, uint64 va, 
                uint64 size, uint64 pa, int perm, int pgmode)
 {
-  uint64 a, last, szunit, lv;
+  uint64 a, last, szunit, level;
   pte_t *pte;
-  
-  switch (pgmode)
-    {
-      case 1:
-        szunit = SUPERPGSIZE;
-        lv = 1;
-        break;
-      case 0:
-        szunit = PGSIZE;
-        lv = 0;
-        break;
-      default:
-        panic ("mappages_size: invalid pgmode value");
-    }
 
+  szunit = PG_GETSIZE  (pgmode);
+  level  = PG_GETLEVEL (pgmode);
+
+  if (pgmode == -1)
+    panic ("mappages_size: pgmode");
+  
   if ((va % szunit) != 0)
     panic ("mappages_size: va not aligned");
 
@@ -212,13 +211,13 @@ mappages_size (pagetable_t pagetable, uint64 va,
   last = va + size - szunit;
   for (;;)
     {
-      if ((pte = walk_level (pagetable, a, 1, lv)) == 0)
+      if ((pte = walk_level (pagetable, a, 1, level)) == 0)
         return -1;
 
       if (*pte & PTE_V)
         panic ("mappages_size: remap");
 
-      *pte = PA2PTE (pa) | PTE_FLAGS (perm) | PTE_V;
+      *pte = PA2PTE (pa) | perm | PTE_V;
 
       if (a == last)
         break;
@@ -235,31 +234,63 @@ mappages_size (pagetable_t pagetable, uint64 va,
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
 void
-uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
+uvmunmap (pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
   uint64 a;
   pte_t *pte;
-  int sz;
+  int size, sz, check, pgmode, level;
+  void (*free) (void*);
 
-  if((va % PGSIZE) != 0)
+  sz = PG_GETSIZE (KPAGEMODE);
+  size = npages * sz;
+
+  if (va % sz != 0)
     panic("uvmunmap: not aligned");
 
-  for(a = va; a < va + npages*PGSIZE; a += sz){
-    sz = PGSIZE;
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0) {
-      printf("va=%ld pte=%ld\n", a, *pte);
-      panic("uvmunmap: not mapped");
+  for (a = va; a < va + size; a += sz)
+    {
+      check = 1;
+
+      pgmode = MPAGEMODE;
+      sz     = PG_GETSIZE  (pgmode);
+      level  = PG_GETLEVEL (pgmode);
+      free   = PG_GETFREE  (pgmode);
+      
+      if ((pte = walk_level (pagetable, a, 0, level)))
+        {
+          if (PTE_FLAGS (*pte) == PTE_V)
+            {
+              pgmode = KPAGEMODE;
+              sz     = PG_GETSIZE  (pgmode);
+              level  = PG_GETLEVEL (pgmode);
+              free   = PG_GETFREE  (pgmode);
+
+              pte = walk_level (pagetable, a, 0, level);
+              if ((*pte & PTE_V) == 0)
+                check = 0;
+            }
+        }
+      else
+        continue;
+      
+      if (check == 0)
+        continue;
+
+      //if((*pte & PTE_V) == 0) 
+      //  {
+      //    printf("va=%ld pte=%ld\n", a, *pte);
+      //    panic("uvmunmap: not mapped");
+      //  }
+
+      if(PTE_FLAGS(*pte) == PTE_V)
+        panic("uvmunmap: not a leaf");
+      if(do_free)
+      {
+        uint64 pa = PTE2PA(*pte);
+        free((void*)pa);
+      }
+      *pte = 0;
     }
-    if(PTE_FLAGS(*pte) == PTE_V)
-      panic("uvmunmap: not a leaf");
-    if(do_free){
-      uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
-    }
-    *pte = 0;
-  }
 }
 
 // create an empty user page table.
@@ -301,29 +332,23 @@ uvmalloc (pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   uint64 a;
   int sz, pgmode;
   void * (*alloc) (void);
+  void (*free) (void *);
 
   if (newsz < oldsz)
     return oldsz;
   
-  if (oldsz + SUPERPGSIZE <= newsz)
-    {
-      pgmode = 1;
-      sz = SUPERPGSIZE;
-      alloc = &superalloc;
-      oldsz = SUPERPGROUNDUP (oldsz);
-    }
-  else
-    {
-      pgmode = 0;
-      sz = PGSIZE;
-      alloc = &kalloc;
-      oldsz = PGROUNDUP (oldsz);
-    }
+  pgmode = PG_GETMODE  (oldsz, newsz);
+  oldsz  = PG_ROUNDUP  (pgmode, oldsz);
+  sz     = PG_GETSIZE  (pgmode);
+  alloc  = PG_GETALLOC (pgmode);
+  free   = PG_GETFREE  (pgmode);
+
+  if (pgmode == -1)
+    panic ("uvmalloc: pgmode");
 
   for (a = oldsz; a < newsz; a += sz) 
     {
-      mem = alloc ();
-      if (mem == 0)
+      if ((mem = alloc ()) == 0)
         {
           uvmdealloc (pagetable, a, oldsz);
           return 0;
@@ -334,7 +359,7 @@ uvmalloc (pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
       if(mappages_size (pagetable, a, sz, (uint64) mem, 
                         PTE_R|PTE_U|xperm, pgmode) != 0)
         {
-          kfree (mem);
+          free (mem);
           uvmdealloc (pagetable, a, oldsz);
           return 0;
         }
@@ -404,25 +429,54 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uint64 pa, i;
   uint flags;
   char *mem;
-  int szinc;
+  int szinc, pgmode, level;
+  void * (*alloc) (void);
+  void (*free) (void *);
+  
+  for(i = 0; i < sz; i += szinc)
+    {
+      pgmode = MPAGEMODE;
+      szinc  = PG_GETSIZE  (pgmode);
+      level  = PG_GETLEVEL (pgmode);
+      alloc  = PG_GETALLOC (pgmode);
+      free   = PG_GETFREE  (pgmode);
 
-  for(i = 0; i < sz; i += szinc){
-    szinc = PGSIZE;
-    szinc = PGSIZE;
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
-  }
+      if ((pte = walk_level (old, i, 0, level)) == 0)
+        panic("uvmcopy: level-1 pte should exist");
+      // not suitable for the demand-paging mechanism :))
+      //if ((*pte & PTE_V) == 0)
+      //  panic("uvmcopy: level-1 page not present");
+
+      if (PTE_LEAF (*pte) == 0)
+        {          
+          pgmode = KPAGEMODE;
+          szinc  = PG_GETSIZE  (pgmode);
+          level  = PG_GETLEVEL (pgmode);
+          alloc  = PG_GETALLOC (pgmode);          
+          free   = PG_GETFREE  (pgmode);
+
+          pte = walk_level (old, i, 0, level);
+
+          //if ((pte = walk_level (old, i, 0, level)) == 0)
+          //  panic("uvmcopy: level-0 pte should exist");
+          //if ((*pte & PTE_V) == 0)
+          //  panic("uvmcopy: level-0 page not present");
+        }
+      
+      if ((*pte & PTE_V) == 0)
+        continue;
+
+      pa = PTE2PA(*pte);
+      flags = PTE_FLAGS(*pte);
+      if((mem = alloc ()) == 0)
+        goto err;
+      memmove(mem, (char*)pa, szinc);
+      if(mappages_size(new, i, szinc, (uint64)mem, flags, pgmode) != 0)
+        {
+          free(mem);
+          goto err;
+        }
+    } 
   return 0;
 
  err:
