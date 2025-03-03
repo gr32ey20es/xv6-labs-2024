@@ -329,7 +329,7 @@ uint64
 uvmalloc (pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 {
   char *mem;
-  uint64 a;
+  uint64 a, osize;
   int sz, pgmode;
   void * (*alloc) (void);
   void (*free) (void *);
@@ -337,21 +337,71 @@ uvmalloc (pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   if (newsz < oldsz)
     return oldsz;
   
-  pgmode = PG_GETMODE  (oldsz, newsz);
-  oldsz  = PG_ROUNDUP  (pgmode, oldsz);
+  pgmode = PG_GETMODE (oldsz, newsz);
+  oldsz  = PG_ROUNDUP (KPAGEMODE, oldsz);
+  osize  = oldsz;
+
+  if (pgmode == -1)
+    panic ("uvmalloc: pgmode");
+  
+  if (pgmode == MPAGEMODE)
+    {
+      pgmode = KPAGEMODE;
+      osize  = PG_ROUNDUP  (pgmode, osize);
+      sz     = PG_GETSIZE  (pgmode);
+      alloc  = PG_GETALLOC (pgmode);
+      free   = PG_GETFREE  (pgmode);
+
+      for (a = osize; a < PG_ROUNDUP (MPAGEMODE, osize); a += sz) 
+        {
+          if ((mem = alloc ()) == 0)
+            {
+              uvmdealloc (pagetable, a, oldsz);
+              return 0;
+            }
+#ifndef LAB_SYSCALL
+          memset (mem, 0, sz);
+#endif
+          if(mappages_size (pagetable, a, sz, (uint64) mem, 
+                            PTE_R|PTE_U|xperm, pgmode) != 0)
+            {
+              free (mem);
+              uvmdealloc (pagetable, a, oldsz);
+              return 0;
+            }
+        }
+
+      pgmode = MPAGEMODE;
+    }
+
+  osize  = PG_ROUNDUP  (pgmode, osize);
   sz     = PG_GETSIZE  (pgmode);
   alloc  = PG_GETALLOC (pgmode);
   free   = PG_GETFREE  (pgmode);
 
-  if (pgmode == -1)
-    panic ("uvmalloc: pgmode");
-
-  for (a = oldsz; a < newsz; a += sz) 
+  for (a = osize; a < newsz; a += sz) 
     {
       if ((mem = alloc ()) == 0)
         {
-          uvmdealloc (pagetable, a, oldsz);
-          return 0;
+          if (pgmode == MPAGEMODE)
+            {
+              pgmode = KPAGEMODE;
+              osize  = PG_ROUNDUP  (pgmode, osize);
+              sz     = PG_GETSIZE  (pgmode);
+              alloc  = PG_GETALLOC (pgmode);
+              free   = PG_GETFREE  (pgmode);
+
+              if ((mem = alloc ()) == 0)
+                {
+                  uvmdealloc (pagetable, a, oldsz);
+                  return 0;
+                }
+            }
+          else 
+            {
+              uvmdealloc (pagetable, a, oldsz);
+              return 0;
+            }
         }
 #ifndef LAB_SYSCALL
       memset (mem, 0, sz);
@@ -399,9 +449,10 @@ freewalk(pagetable_t pagetable)
       uint64 child = PTE2PA(pte);
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
-    } else if(pte & PTE_V){
-      panic("freewalk: leaf");
-    }
+    } 
+    //else if(pte & PTE_V){
+      //panic("freewalk: leaf");
+    //}
   }
   kfree((void*)pagetable);
 }

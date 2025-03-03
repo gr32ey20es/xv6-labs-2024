@@ -8,6 +8,7 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "vm.h"
 
 void freerange(void *pa_start, void *pa_end);
 char* freerangewopt(void *pa_start, void *pa_end, int opt);
@@ -40,36 +41,28 @@ freerange(void *pa_start, void *pa_end)
   p = (char *) PGROUNDUP ((uint64) pa_start);
   superp = (char *) SUPERPGROUNDUP ((uint64) pa_start);
 
-  freerangewopt (p, superp, 0);
-  superp = freerangewopt (superp, pa_end, 1);
+  freerangewopt (p, superp, KPAGEMODE);
+  superp = freerangewopt (superp, pa_end, MPAGEMODE);
   p = superp;
-  freerangewopt (p, pa_end, 0);
+  freerangewopt (p, pa_end, KPAGEMODE);
 }
 
 // opt 0: kfree
 // opt 1: superfree
 // return non-free address
 char *
-freerangewopt(void *pa_start, void *pa_end, int opt)
+freerangewopt(void *pa_start, void *pa_end, int pgmode)
 {
   char *p;
   int size;
   void (*free)(void *);
 
-  switch (opt) 
-    {
-      case 0:
-        size = PGSIZE;
-        free = &kfree;
-        break;
-      case 1:
-        size = SUPERPGSIZE;
-        free = &superfree;
-        break;
-      default:
-        panic ("freerangewopt");
-    }
-  
+  size = PG_GETSIZE (pgmode);
+  free = PG_GETFREE (pgmode);
+        
+  if (size == -1)
+    panic ("freerangewopt: size");
+
   p = pa_start;
   for(; p + size <= (char*) pa_end; p += size)
     free(p);
