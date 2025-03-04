@@ -78,7 +78,23 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
-    yield();
+    {
+      if (p->alarm.state == ALARM_SLEEPING)
+        {
+          ++p->alarm.lasttick;
+          if (p->alarm.lasttick >= p->alarm.interval)
+          {
+            p->alarm.state = ALARM_RUNNING;
+            p->alarm.oldepc = p->trapframe->epc;
+            p->alarm.oldra  = p->trapframe->ra;
+            p->alarm.oldsp  = p->trapframe->sp;
+            p->alarm.olds0  = p->trapframe->s0;
+            p->alarm.olda0  = p->trapframe->a0;
+            p->trapframe->epc = p->alarm.handleraddr;
+          }
+        }
+      yield();
+    }
 
   usertrapret();
 }
@@ -118,7 +134,7 @@ usertrapret(void)
 
   // set S Exception Program Counter to the saved user pc.
   w_sepc(p->trapframe->epc);
-
+  
   // tell trampoline.S the user page table to switch to.
   uint64 satp = MAKE_SATP(p->pagetable);
 

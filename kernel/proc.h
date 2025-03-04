@@ -19,6 +19,7 @@ struct context {
 };
 
 // Per-CPU state.
+
 struct cpu {
   struct proc *proc;          // The process running on this cpu, or null.
   struct context context;     // swtch() here to enter scheduler().
@@ -80,6 +81,20 @@ struct trapframe {
 };
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+enum alarmstate { ALARM_UNACTIVED, ALARM_RUNNING, ALARM_SLEEPING };
+
+struct alarm
+  {
+    enum alarmstate state;
+    uint64 lasttick;
+    uint64 interval;
+    uint64 handleraddr;
+    uint64 oldepc;
+    uint64 oldra;
+    uint64 oldsp;
+    uint64 olds0;
+    uint64 olda0;
+  };
 
 // Per-process state
 struct proc {
@@ -104,4 +119,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct alarm alarm;
 };
+

@@ -196,9 +196,8 @@ backtraceloop:
   ra = *((uint64 *) ra_addr);
   printf ("%p\n", (void *) ra);
   
-   fp_addr = fp - (2 << 3);
+  fp_addr = fp - (2 << 3);
   fp = *((uint64 *) fp_addr);
-  printf ("%p\n", (void *) fp);
 
   goto backtraceloop;
   
