@@ -86,7 +86,7 @@ pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
   if(va >= MAXVA)
-    panic("walk");
+    return 0;
 
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
@@ -160,9 +160,10 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
+    if((*pte & PTE_V) && !(*pte & PTE_COW))
       panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
+    
     if(a == last)
       break;
     a += PGSIZE;
@@ -315,7 +316,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  //char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -323,19 +324,51 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    
+    if (*pte & PTE_W) 
+        *pte = (*pte | PTE_COW) & (~PTE_W);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
-  }
+
+    incpgref ((uint64) pa);
+ }
   return 0;
 
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
+  return -1;
+}
+
+int
+uvmstorepgfault (pagetable_t pagetable, uint64 stval)
+{
+  char *mem;
+  uint flags;
+  uint64 va = PGROUNDDOWN (stval);
+  pte_t *pte = walk (pagetable, va, 0);
+  
+  if (pte == 0)
+    return -1;
+
+  if (*pte & PTE_COW)
+    {
+      flags = PTE_FLAGS (*pte) | PTE_W;
+      if ((mem = kalloc ()) == 0)
+        goto err;
+      memmove (mem, (char*) PTE2PA (*pte), PGSIZE);
+      kfree ((void *) PTE2PA (*pte));
+      if (mappages (pagetable, va, PGSIZE, (uint64) mem, flags) != 0)
+        {
+          kfree (mem);
+          goto err;
+        }
+      
+      return 0;
+    }
+
+err:
   return -1;
 }
 
@@ -366,8 +399,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     if(va0 >= MAXVA)
       return -1;
     pte = walk(pagetable, va0, 0);
-    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
-       (*pte & PTE_W) == 0)
+    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+      return -1;
+    
+    if ((*pte & PTE_W) == 0 
+        && uvmstorepgfault (pagetable, va0) == -1)
       return -1;
     pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);

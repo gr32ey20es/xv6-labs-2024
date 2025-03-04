@@ -60,8 +60,11 @@ void            ramdiskintr(void);
 void            ramdiskrw(struct buf*);
 
 // kalloc.c
+uint            incpgref(uint64);
+uint            decpgref(uint64);
 void*           kalloc(void);
 void            kfree(void *);
+void            kfreewforce(void *, int);
 void            kinit(void);
 
 // log.c
@@ -77,7 +80,7 @@ int             piperead(struct pipe*, uint64, int);
 int             pipewrite(struct pipe*, uint64, int);
 
 // printf.c
-int            printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
+int             printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 
@@ -173,6 +176,7 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             uvmstorepgfault(pagetable_t, uint64);
 
 // plic.c
 void            plicinit(void);
