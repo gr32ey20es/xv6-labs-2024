@@ -89,11 +89,7 @@ struct alarm
     uint64 lasttick;
     uint64 interval;
     uint64 handleraddr;
-    uint64 oldepc;
-    uint64 oldra;
-    uint64 oldsp;
-    uint64 olds0;
-    uint64 olda0;
+    struct trapframe trapframeold;
   };
 
 // Per-process state

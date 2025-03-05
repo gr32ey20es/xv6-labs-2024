@@ -150,5 +150,5 @@ syscall(void)
   }
 
   if (num == SYS_sigreturn)
-    p->trapframe->a0 = p->alarm.olda0;
+    p->trapframe->a0 = p->alarm.trapframeold.a0;
 }

@@ -127,12 +127,9 @@ sys_sigreturn (void)
 {
   
   struct proc *p = myproc ();
-
-  p->trapframe->epc = p->alarm.oldepc; 
-  p->trapframe->ra  = p->alarm.oldra; 
-  p->trapframe->sp  = p->alarm.oldsp; 
-  p->trapframe->s0  = p->alarm.olds0;
   
+  copytrapframe (&(p->alarm.trapframeold), p->trapframe);
+
   p->alarm.state = ALARM_SLEEPING;
   p->alarm.lasttick = 0;
   
