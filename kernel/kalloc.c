@@ -21,7 +21,24 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  int pagecount[MAXPHYID];
 } kmem;
+
+int 
+deltapagecount (uint64 pa, int delta, int lock)
+{
+  int count;
+
+  if (lock == 1) 
+    acquire (&kmem.lock);
+  count = kmem.pagecount[PHY2ID (pa)];
+  count += delta;
+  kmem.pagecount[PHY2ID (pa)] = count;
+  if (lock == 1)
+    release (&kmem.lock);
+
+  return count;
+}
 
 void
 kinit()
@@ -51,6 +68,9 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
+  if (deltapagecount ((uint64) pa, -1, 1) > 0)
+    return;
+  
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
@@ -73,7 +93,10 @@ kalloc(void)
   acquire(&kmem.lock);
   r = kmem.freelist;
   if(r)
-    kmem.freelist = r->next;
+    {
+      kmem.freelist = r->next;
+      kmem.pagecount[PHY2ID ((uint64) r)] = 1;
+    }
   release(&kmem.lock);
 
   if(r)
