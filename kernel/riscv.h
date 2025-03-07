@@ -362,7 +362,13 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // user can access
-#define PTE_COW (1L << 8) // set in writable pages when forking
+#define PTE_COW (1L << 8)
+
+// set COW flag and clear W flag if W flag is set.
+#define COWSETUP(flag) \
+(((flag) & PTE_W) ? (((flag) | PTE_COW) & (~PTE_W)) : (flag))
+
+#define SETFLAG(pte, flag) (((pte) & (~0x3FF)) | flag) 
 
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
