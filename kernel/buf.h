@@ -3,10 +3,19 @@ struct buf {
   int disk;    // does disk "own" buf?
   uint dev;
   uint blockno;
+  uint hashno;
   struct sleeplock lock;
   uint refcnt;
-  struct buf *prev; // LRU cache list
-  struct buf *next;
   uchar data[BSIZE];
+};
+
+#define HASHPRIME 137
+
+struct hashtable {
+  uint type;   // 0: not existed. 1: in used  
+  uint dev;
+  uint blockno;   
+  uint bufno;
+  struct spinlock lock;
 };
 
